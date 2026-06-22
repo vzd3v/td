@@ -79,6 +79,7 @@ type internalState struct {
 	diffLim               int
 	wg                    *errgroup.Group
 	tracer                trace.Tracer
+	trackChannel          func(channelID int64) bool // vzd3v: gotd/td#1800
 }
 
 type stateConfig struct {
@@ -100,6 +101,7 @@ type stateConfig struct {
 	SelfID                int64
 	DiffLimit             int
 	WorkGroup             *errgroup.Group
+	TrackChannel          func(channelID int64) bool // vzd3v: gotd/td#1800
 }
 
 func newState(ctx context.Context, cfg stateConfig) *internalState {
@@ -127,6 +129,11 @@ func newState(ctx context.Context, cfg stateConfig) *internalState {
 		diffLim:               cfg.DiffLimit,
 		wg:                    cfg.WorkGroup,
 		tracer:                cfg.Tracer,
+		trackChannel:          cfg.TrackChannel, // vzd3v: gotd/td#1800
+	}
+	// vzd3v: default to tracking all channels when no predicate is supplied.
+	if s.trackChannel == nil {
+		s.trackChannel = func(int64) bool { return true }
 	}
 	s.pts = newSequenceBox(sequenceConfig{
 		InitialState: cfg.State.Pts,
@@ -147,6 +154,10 @@ func newState(ctx context.Context, cfg stateConfig) *internalState {
 	})
 
 	for id, info := range cfg.Channels {
+		// vzd3v: do not spawn pollers for non-tracked channels (gotd/td#1800).
+		if !s.trackChannel(id) {
+			continue
+		}
 		state := s.newChannelState(id, info.AccessHash, info.Pts)
 		s.channels[id] = state
 		s.wg.Go(func() error {
@@ -446,6 +457,13 @@ func (s *internalState) handleChannel(ctx context.Context, channelID int64, date
 
 	state, ok := s.channels[channelID]
 	if !ok {
+		// vzd3v: never create a poller for a channel the client does not track
+		// (gotd/td#1800). The update is dropped, like an unrecoverable access hash.
+		if !s.trackChannel(channelID) {
+			s.log.Debug(ctx, "Channel not tracked, update ignored",
+				log.Int64("channel_id", channelID))
+			return nil
+		}
 		accessHash, found, err := s.hasher.GetChannelAccessHash(context.Background(), s.selfID, channelID)
 		if err != nil {
 			s.log.Error(ctx, "GetChannelAccessHash error", log.Error(err))
