@@ -66,6 +66,14 @@ type Config struct {
 	// before. A positive value bounds the burst so an account in many active
 	// channels does not exceed Telegram's per-account method rate limit.
 	MaxChannelDifferenceConcurrency int
+
+	// vzd3v: TrackChannel predicate (gotd/td#1800). When set, the manager only
+	// tracks channels for which it returns true: non-tracked channels get no
+	// goroutine, no stored pts and no periodic getChannelDifference, both at boot
+	// (ForEachChannels) and on-demand (incoming channel updates). nil = track all
+	// (upstream behavior). Lets a client that deliberately follows a subset of its
+	// channels avoid O(channels) goroutines and idle-poll RPCs.
+	TrackChannel func(channelID int64) bool
 }
 
 func (cfg *Config) setDefaults() {
@@ -86,6 +94,10 @@ func (cfg *Config) setDefaults() {
 	}
 	if cfg.Storage == nil {
 		cfg.Storage = newMemStorage()
+	}
+	// vzd3v: default predicate tracks every channel (upstream behavior).
+	if cfg.TrackChannel == nil {
+		cfg.TrackChannel = func(int64) bool { return true }
 	}
 	lg := log.For(cfg.Logger)
 	if cfg.OnChannelTooLong == nil {
