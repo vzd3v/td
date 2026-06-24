@@ -125,4 +125,35 @@ func TestManager_loadChannels(t *testing.T) {
 		a.Len(channels, 1)
 		a.False(called, "callback must not fire when all access hashes are present")
 	})
+
+	t.Run("TrackChannel", func(t *testing.T) {
+		a := require.New(t)
+		var failed []int64
+
+		storage := newMemStorage()
+		a.NoError(storage.SetState(ctx, userID, State{}))
+		a.NoError(storage.SetChannelPts(ctx, userID, 10, 1))
+		a.NoError(storage.SetChannelPts(ctx, userID, 20, 2))
+
+		hasher := newMemAccessHasher()
+		a.NoError(hasher.SetChannelAccessHash(ctx, userID, 20, 0xdef))
+
+		m := newTestManager(t, Config{
+			Storage:      storage,
+			AccessHasher: hasher,
+			TrackChannel: func(channelID int64) bool {
+				return channelID == 20
+			},
+			OnLoadChannelStateFailed: func(channelID int64) {
+				failed = append(failed, channelID)
+			},
+		})
+
+		channels, err := m.loadChannels(ctx, userID)
+		a.NoError(err)
+		a.Len(channels, 1)
+		a.Contains(channels, int64(20))
+		a.Equal(int64(0xdef), channels[20].AccessHash)
+		a.Empty(failed, "filtered channels must not report missing access hashes")
+	})
 }

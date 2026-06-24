@@ -43,6 +43,21 @@ func (a *diffAPI) UpdatesGetChannelDifference(
 	return &tg.UpdatesChannelDifferenceEmpty{}, nil
 }
 
+type countingChannelAccessHasher struct {
+	setCalls int
+	getCalls int
+}
+
+func (h *countingChannelAccessHasher) SetChannelAccessHash(ctx context.Context, userID, channelID, accessHash int64) error {
+	h.setCalls++
+	return nil
+}
+
+func (h *countingChannelAccessHasher) GetChannelAccessHash(ctx context.Context, userID, channelID int64) (int64, bool, error) {
+	h.getCalls++
+	return 99, true, nil
+}
+
 // TestStateOnTooLong ensures the OnTooLong hook is invoked when the manager
 // receives updates.differenceTooLong and cannot recover the common state gap.
 func TestStateOnTooLong(t *testing.T) {
@@ -118,6 +133,93 @@ func TestHandleQtsZeroDoesNotResetState(t *testing.T) {
 
 	require.Equal(t, 1, dispatched, "qts=0 update must be dispatched")
 	require.Equal(t, 100, s.qts.State(), "qts state must not be reset by a qts=0 update")
+}
+
+func TestStateTrackChannelSkipsInitialChannels(t *testing.T) {
+	ctx := context.Background()
+	wg := &errgroup.Group{}
+
+	s := newState(ctx, stateConfig{
+		Channels: map[int64]struct {
+			Pts        int
+			AccessHash int64
+		}{
+			10: {Pts: 1, AccessHash: 100},
+			20: {Pts: 2, AccessHash: 200},
+		},
+		RawClient: &diffAPI{},
+		Logger:    logzap.New(zaptest.NewLogger(t)),
+		Tracer:    noop.NewTracerProvider().Tracer(""),
+		Handler: telegram.UpdateHandlerFunc(func(ctx context.Context, u tg.UpdatesClass) error {
+			return nil
+		}),
+		OnChannelTooLong: func(int64) {},
+		OnTooLong:        func() {},
+		Storage:          newMemStorage(),
+		Hasher:           newMemAccessHasher(),
+		SelfID:           123,
+		DiffLimit:        diffLimitUser,
+		WorkGroup:        wg,
+		TrackChannel:     func(int64) bool { return false },
+	})
+	t.Cleanup(func() {
+		s.idleTimeout.Stop()
+	})
+
+	require.Empty(t, s.channels, "filtered channels must not create channel workers")
+	require.NoError(t, wg.Wait(), "no filtered channel worker should be started")
+}
+
+func TestStateTrackChannelSkipsRuntimeChannel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const (
+		selfID    = int64(123)
+		channelID = int64(10)
+	)
+	storage := newMemStorage()
+	require.NoError(t, storage.SetState(ctx, selfID, State{}))
+	hasher := &countingChannelAccessHasher{}
+	wg := &errgroup.Group{}
+
+	s := newState(ctx, stateConfig{
+		RawClient: &diffAPI{},
+		Logger:    logzap.New(zaptest.NewLogger(t)),
+		Tracer:    noop.NewTracerProvider().Tracer(""),
+		Handler: telegram.UpdateHandlerFunc(func(ctx context.Context, u tg.UpdatesClass) error {
+			return nil
+		}),
+		OnChannelTooLong: func(int64) {},
+		OnTooLong:        func() {},
+		Storage:          storage,
+		Hasher:           hasher,
+		SelfID:           selfID,
+		DiffLimit:        diffLimitUser,
+		WorkGroup:        wg,
+		TrackChannel:     func(int64) bool { return false },
+	})
+	t.Cleanup(func() {
+		s.idleTimeout.Stop()
+		cancel()
+		_ = wg.Wait()
+	})
+
+	err := s.handleChannel(ctx, channelID, 1, 1, 1, channelUpdate{
+		update: &tg.UpdateNewChannelMessage{
+			Message:  &tg.Message{ID: 1, PeerID: &tg.PeerChannel{ChannelID: channelID}},
+			Pts:      1,
+			PtsCount: 1,
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, s.channels, "filtered runtime channel must not create a channel worker")
+	require.Zero(t, hasher.getCalls, "filtered runtime channel must not try access-hash recovery")
+	require.Zero(t, hasher.setCalls, "filtered runtime channel must not save access hashes")
+
+	_, found, err := storage.GetChannelPts(ctx, selfID, channelID)
+	require.NoError(t, err)
+	require.False(t, found, "filtered runtime channel must not maintain channel pts")
 }
 
 // channelPrivateAPI returns CHANNEL_PRIVATE from getChannelDifference,

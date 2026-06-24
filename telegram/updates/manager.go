@@ -163,7 +163,7 @@ func (m *Manager) Run(ctx context.Context, api API, userID int64, opt AuthOption
 			DiffLimit:             diffLim,
 			WorkGroup:             wg,
 			ChannelDiffSem:        m.chDiffSem,
-			TrackChannel:          m.cfg.TrackChannel, // vzd3v: gotd/td#1800
+			TrackChannel:          m.cfg.TrackChannel,
 		})
 
 		return nil
@@ -193,7 +193,6 @@ func (m *Manager) loadChannels(ctx context.Context, userID int64) (map[int64]str
 		AccessHash int64
 	})
 	if err := m.cfg.Storage.ForEachChannels(ctx, userID, func(ctx context.Context, channelID int64, pts int) error {
-		// vzd3v: skip channels the client does not track (gotd/td#1800).
 		if !m.cfg.TrackChannel(channelID) {
 			return nil
 		}
