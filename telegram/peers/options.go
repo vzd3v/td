@@ -10,9 +10,10 @@ import (
 
 // Options is options of Manager
 type Options struct {
-	Storage Storage
-	Cache   Cache
-	Logger  log.Logger
+	Storage  Storage
+	Cache    Cache
+	Observer EntityObserver
+	Logger   log.Logger
 }
 
 func (o *Options) setDefaults() {
@@ -21,6 +22,9 @@ func (o *Options) setDefaults() {
 	}
 	if o.Cache == nil {
 		o.Cache = NoopCache{}
+	}
+	if o.Observer == nil {
+		o.Observer = NoopEntityObserver{}
 	}
 	if o.Logger == nil {
 		o.Logger = log.Nop
@@ -31,12 +35,13 @@ func (o *Options) setDefaults() {
 func (o Options) Build(api *tg.Client) *Manager {
 	o.setDefaults()
 	return &Manager{
-		api:     api,
-		storage: o.Storage,
-		cache:   o.Cache,
-		me:      new(atomicUser),
-		logger:  log.For(o.Logger),
-		sg:      singleflight.Group{},
+		api:      api,
+		storage:  o.Storage,
+		cache:    o.Cache,
+		observer: o.Observer,
+		me:       new(atomicUser),
+		logger:   log.For(o.Logger),
+		sg:       singleflight.Group{},
 		needUpdate: peerIDSet{
 			m: make(map[constant.TDLibPeerID]struct{}),
 		},

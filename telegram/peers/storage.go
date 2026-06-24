@@ -29,6 +29,28 @@ type Storage interface {
 	SaveContactsHash(ctx context.Context, hash int64) error
 }
 
+// EntityObserver observes raw peer entities before Manager splits them into
+// storage and cache callbacks.
+type EntityObserver interface {
+	ObserveUsers(ctx context.Context, users ...tg.UserClass) error
+	ObserveChats(ctx context.Context, chats ...tg.ChatClass) error
+}
+
+// NoopEntityObserver is no-op implementation of EntityObserver.
+type NoopEntityObserver struct{}
+
+var _ EntityObserver = NoopEntityObserver{}
+
+// ObserveUsers implements EntityObserver.
+func (n NoopEntityObserver) ObserveUsers(ctx context.Context, users ...tg.UserClass) error {
+	return nil
+}
+
+// ObserveChats implements EntityObserver.
+func (n NoopEntityObserver) ObserveChats(ctx context.Context, chats ...tg.ChatClass) error {
+	return nil
+}
+
 const (
 	usersPrefix   = "users_"
 	chatsPrefix   = "chats_"

@@ -11,6 +11,10 @@ import (
 )
 
 func (m *Manager) applyUsers(ctx context.Context, input ...tg.UserClass) error {
+	if err := m.observer.ObserveUsers(ctx, input...); err != nil {
+		return errors.Wrap(err, "observe users")
+	}
+
 	var (
 		users []*tg.User
 		ids   = make([]constant.TDLibPeerID, 0, 16)
@@ -59,6 +63,10 @@ func (m *Manager) applyUsers(ctx context.Context, input ...tg.UserClass) error {
 }
 
 func (m *Manager) applyChats(ctx context.Context, input ...tg.ChatClass) error {
+	if err := m.observer.ObserveChats(ctx, input...); err != nil {
+		return errors.Wrap(err, "observe chats")
+	}
+
 	var (
 		chats    []*tg.Chat
 		channels []*tg.Channel

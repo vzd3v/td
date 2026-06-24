@@ -15,9 +15,10 @@ import (
 //
 // NB: this package is completely experimental and still WIP.
 type Manager struct {
-	api     *tg.Client
-	storage Storage
-	cache   Cache
+	api      *tg.Client
+	storage  Storage
+	cache    Cache
+	observer EntityObserver
 
 	// State of current user.
 	me *atomicUser
