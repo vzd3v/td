@@ -45,11 +45,16 @@ func TestCommonStateGapKeepsBufferedUpdate(t *testing.T) {
 				if e, ok := x.(*tg.UpdateEditMessage); ok {
 					dispatched = append(dispatched, e.Pts)
 				}
+				if d, ok := x.(*tg.UpdateDeleteMessages); ok {
+					dispatched = append(dispatched, d.Pts)
+				}
 			}
 		}
 		return nil
 	})
 
+	storage := newMemStorage()
+	require.NoError(t, storage.SetState(ctx, selfID, State{Pts: 10, Date: 1}))
 	s := newState(ctx, stateConfig{
 		State:            State{Pts: 10, Date: 1},
 		RawClient:        api,
@@ -58,7 +63,7 @@ func TestCommonStateGapKeepsBufferedUpdate(t *testing.T) {
 		Handler:          handler,
 		OnChannelTooLong: func(int64) {},
 		OnTooLong:        func() {},
-		Storage:          newMemStorage(),
+		Storage:          storage,
 		Hasher:           newMemAccessHasher(),
 		UserHasher:       newMemUserAccessHasher(),
 		SelfID:           selfID,
@@ -81,5 +86,21 @@ func TestCommonStateGapKeepsBufferedUpdate(t *testing.T) {
 	// A gap-triggered difference replays the edit and advances the state to 12.
 	require.NoError(t, s.getDifference(ctx, "test"))
 
-	require.Contains(t, dispatched, 12, "the replayed edit at pts 12 must be dispatched")
+	require.Equal(t, []int{12}, dispatched, "the replayed edit must be delivered once")
+	checkpoint, found, err := storage.GetState(ctx, selfID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 12, checkpoint.Pts)
+	require.Equal(t, 12, s.pts.State())
+
+	// Recovery must also leave the live sequence able to advance, without
+	// delivering the buffered copy of the edit again.
+	require.NoError(t, s.handleUpdates(ctx, &tg.Updates{Updates: []tg.UpdateClass{
+		&tg.UpdateDeleteMessages{Messages: []int{2}, Pts: 13, PtsCount: 1},
+	}}, false))
+	require.Equal(t, []int{12, 13}, dispatched)
+	checkpoint, _, err = storage.GetState(ctx, selfID)
+	require.NoError(t, err)
+	require.Equal(t, 13, checkpoint.Pts)
+	require.Equal(t, 13, s.pts.State())
 }
