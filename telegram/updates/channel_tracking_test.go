@@ -502,7 +502,7 @@ func TestChannelTrackingRechecksPendingWork(t *testing.T) {
 					require.ErrorIs(t, <-done, errChannelDeselected)
 					require.Zero(t, state.pts.State(), "queued work must not advance PTS after deselection")
 				}
-				require.True(t, state.getDifferenceLogger(context.Background(), "idle-recovery"),
+				require.ErrorIs(t, state.getDifferenceLogger(context.Background(), "idle-recovery"), errChannelDeselected,
 					"recovery must recognize deselection as a clean stop")
 			})
 		})
