@@ -3,8 +3,9 @@ package updates
 import (
 	"context"
 
-	"github.com/gotd/log"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/gotd/log"
 
 	"github.com/gotd/td/tg"
 )
@@ -24,6 +25,9 @@ func (s *internalState) applySeq(ctx context.Context, state int, updates []updat
 
 	if err := s.storage.SetSeq(ctx, s.selfID, state); err != nil {
 		s.log.Error(ctx, "SetSeq error", log.Error(err))
+		if s.stopOnApplyError {
+			return &applyError{err}
+		}
 	}
 
 	if recoverState {
@@ -86,6 +90,9 @@ func (s *internalState) applyCombined(ctx context.Context, comb *tg.UpdatesCombi
 				span:     trace.SpanContextFromContext(ctx),
 			}); err != nil {
 				s.log.Error(ctx, "Handle channel update error", log.Error(err))
+				if isApplyError(err) {
+					return false, err
+				}
 			}
 
 			continue
@@ -109,6 +116,9 @@ func (s *internalState) applyCombined(ctx context.Context, comb *tg.UpdatesCombi
 			Chats:   ents.Chats,
 		}); err != nil {
 			s.log.Error(ctx, "Handle updates error", log.Error(err))
+			if s.stopOnApplyError {
+				return false, &applyError{err}
+			}
 		}
 	}
 
@@ -117,6 +127,9 @@ func (s *internalState) applyCombined(ctx context.Context, comb *tg.UpdatesCombi
 	case setDate && setSeq:
 		if err := s.storage.SetDateSeq(ctx, s.selfID, comb.Date, comb.Seq); err != nil {
 			s.log.Error(ctx, "SetDateSeq error", log.Error(err))
+			if s.stopOnApplyError {
+				return false, &applyError{err}
+			}
 		}
 
 		s.date = comb.Date
@@ -124,11 +137,17 @@ func (s *internalState) applyCombined(ctx context.Context, comb *tg.UpdatesCombi
 	case setDate:
 		if err := s.storage.SetDate(ctx, s.selfID, comb.Date); err != nil {
 			s.log.Error(ctx, "SetDate error", log.Error(err))
+			if s.stopOnApplyError {
+				return false, &applyError{err}
+			}
 		}
 		s.date = comb.Date
 	case setSeq:
 		if err := s.storage.SetSeq(ctx, s.selfID, comb.Seq); err != nil {
 			s.log.Error(ctx, "SetSeq error", log.Error(err))
+			if s.stopOnApplyError {
+				return false, &applyError{err}
+			}
 		}
 		s.seq.SetState(comb.Seq, "seq update")
 	}
@@ -162,11 +181,17 @@ func (s *internalState) applyPts(ctx context.Context, state int, updates []updat
 			Chats:   ents.Chats,
 		}); err != nil {
 			s.log.Error(ctx, "Handle updates error", log.Error(err))
+			if s.stopOnApplyError {
+				return &applyError{err}
+			}
 		}
 	}
 
 	if err := s.storage.SetPts(ctx, s.selfID, state); err != nil {
 		s.log.Error(ctx, "SetPts error", log.Error(err))
+		if s.stopOnApplyError {
+			return &applyError{err}
+		}
 	}
 
 	return nil
@@ -192,6 +217,9 @@ func (s *internalState) applyQts(ctx context.Context, state int, updates []updat
 		Chats:   ents.Chats,
 	}); err != nil {
 		s.log.Error(ctx, "Handle updates error", log.Error(err))
+		if s.stopOnApplyError {
+			return &applyError{err}
+		}
 	}
 
 	// Don't set qts if it's 0, because it means that we are apllying gaps updates
@@ -201,6 +229,9 @@ func (s *internalState) applyQts(ctx context.Context, state int, updates []updat
 
 	if err := s.storage.SetQts(ctx, s.selfID, state); err != nil {
 		s.log.Error(ctx, "SetQts error", log.Error(err))
+		if s.stopOnApplyError {
+			return &applyError{err}
+		}
 	}
 
 	return nil

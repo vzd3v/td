@@ -3,8 +3,9 @@ package updates
 import (
 	"context"
 
-	"github.com/gotd/log"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/gotd/log"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
@@ -30,6 +31,11 @@ type Config struct {
 	// Excluded channels retain their stored checkpoints. Re-enabling a channel
 	// can require catch-up and is subject to OnChannelTooLong.
 	TrackChannel func(channelID int64) bool
+	// StopOnApplyError makes Run return on Handler or StateStorage errors
+	// while applying updates, instead of logging them and continuing.
+	// Completed or concurrent work is not rolled back. Handlers must tolerate
+	// replay; handler effects and checkpoint writes are not made atomic.
+	StopOnApplyError bool
 	// Callback called if manager cannot
 	// recover channel gap (optional).
 	OnChannelTooLong func(channelID int64)
