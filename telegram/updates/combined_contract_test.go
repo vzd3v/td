@@ -15,7 +15,7 @@ import (
 )
 
 // These integration cases require the combined PR runtime, not feature detection.
-func startCombinedContract(t *testing.T, m *Manager, api API) (context.CancelFunc, <-chan error) {
+func startCombinedContract(t *testing.T, m *Manager, api API) (cancel context.CancelFunc, stopped <-chan error) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
